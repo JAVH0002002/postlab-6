@@ -1,0 +1,154 @@
+#define F_CPU 16000000UL
+#include <avr/io.h>
+#include <util/delay.h>
+#include <avr/interrupt.h>
+#include <stdlib.h>
+
+void setup(void);
+void initUART9600(void);
+void writeUART(char caracter);
+void WriteTextUART(char *Texto);
+void writeNumberUART(uint8_t number);
+
+volatile uint8_t bufferTX;
+volatile uint8_t bufferRX;
+uint8_t valorADC = 0x00;
+uint8_t bandera;
+
+void setup() {
+	DDRB |= (1 << DDB0) | (1 << DDB1) | (1 << DDB2) | (1 << DDB3) | (1 << DDB4) | (1 << DDB5);
+
+	DDRC |= (1 << PC0) | (1 << PC1);
+	initUART9600();
+	initADC();
+	sei();
+}
+
+void UART_lab() {
+	writeUART(10);
+	writeUART(13);
+	WriteTextUART("Ingrese un caracter");
+	writeUART(10);
+	writeUART(13);
+}
+
+void UART_Postlab() {
+	writeUART(10);
+	writeUART(13);
+	WriteTextUART("Ingrese un numero");
+	writeUART(10);
+	writeUART(13);
+	WriteTextUART("1) Leer potenciometro");
+	writeUART(10);
+	writeUART(13);
+	WriteTextUART("2) Enviar ASCII");
+	writeUART(10);
+	writeUART(13);
+}
+
+void RespuestadeMenu() {
+}
+
+int main(void) {
+	setup();
+	UART_Postlab();
+	char opcion;
+	while (1) {
+		// Esperar entrada del usuario
+		ADCSRA |= (1 << ADSC);
+		while (ADCSRA & (1 << ADSC));
+	}
+}
+
+void initUART9600(void) {
+	DDRD &= ~(1 << DDD0);
+	DDRD |= (1 << DDD1);
+	UCSR0A = 0;
+	UCSR0B = 0;
+	UCSR0B |= (1 << RXCIE0) | (1 << RXEN0) | (1 << TXEN0);
+	UCSR0C = 0;
+	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+	UBRR0 = 103;
+}
+
+void writeUART(char Caracter) {
+	while (!(UCSR0A & (1 << UDRE0)));
+	UDR0 = Caracter;
+}
+
+void WriteTextUART(char *Texto) {
+	uint8_t i;
+	for (i = 0; Texto[i] != '\0'; i++) {
+		while (!(UCSR0A & (1 << UDRE0)));
+		UDR0 = Texto[i];
+	}
+}
+
+void writeNumberUART(uint8_t number) {
+	char buffer[4]; // Buffer para almacenar el número convertido como una cadena de caracteres (máximo 3 dígitos y el carácter nulo)
+	itoa(number, buffer, 10); // Convertir el número a una cadena de caracteres en base 10
+	WriteTextUART(buffer); // Enviar la cadena de caracteres a través de la UART
+}
+
+void LEDS() {
+	PORTB = (PORTB & 0xC0) | (bufferTX & 0x3F);
+	PORTC = (PORTC & 0xFC) | ((bufferTX >> 6) & 0x03);
+}
+
+ISR(USART_RX_vect) {
+	bufferTX = UDR0;
+	while (!(UCSR0A & (1 << UDRE0)));
+
+	if (bandera == 1) {
+		LEDS();
+		bandera = 0;
+		UART_Postlab();
+		writeUART(10);
+		writeUART(13);
+		} else {
+		if (bufferTX == 49) {
+			// Realizar una única lectura del ADC
+			ADCSRA |= (1 << ADSC);
+			// Esperar hasta que la conversión esté completa
+			while (ADCSRA & (1 << ADSC));
+			// Leer el valor ADC
+			valorADC = ADCH;
+
+			// Convertir el valor ADC en un rango de 0 a 255
+			uint16_t valorVoltaje = (uint16_t) valorADC * 255 / 255;
+
+			// Enviar el valor convertido a través de la UART
+			writeNumberUART(valorVoltaje);
+
+			// Volver al menú principal
+			UART_Postlab();
+			} else if (bufferTX == 50) {
+			WriteTextUART("Ingrese un caracter: ");
+			writeUART(10);
+			writeUART(13);
+			bandera = 1;
+			} else {
+			UART_Postlab();
+			writeUART(10);
+			writeUART(13);
+		}
+	}
+}
+
+ISR(ADC_vect) {
+	valorADC = ADCH;
+	ADCSRA |= (1 << ADIF);
+}
+
+void initADC() {
+	ADMUX = 0;
+	ADMUX |= (1 << REFS0);
+	ADMUX &= ~(1 << REFS1);
+	ADMUX |= (1 << MUX1); // seleccionamos PC2 como la entrada para el ADC
+	ADMUX &= ~(1 << MUX0); // seleccionamos PC2 como la entrada para el ADC
+	ADMUX |= (1 << ADLAR);
+	ADCSRA = 0;
+	ADCSRA |= (1 << ADEN);
+	ADCSRA |= (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
+	ADCSRA |= (1 << ADEN);
+}
